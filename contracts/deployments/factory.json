@@ -1,0 +1,78 @@
+{
+  "10143": {
+    "chainId": 10143,
+    "chainName": "monad",
+    "address": "0x71fCa30B945DD1bC30FE7a8bEC63656213bC8a74",
+    "deployedAt": "2025-10-19T07:38:14.516Z",
+    "contractName": "FactoryToken"
+  },
+  "11155111": {
+    "chainId": 11155111,
+    "chainName": "sepolia",
+    "address": "0x71fCa30B945DD1bC30FE7a8bEC63656213bC8a74",
+    "deployedAt": "2025-10-19T07:38:36.133Z",
+    "contractName": "FactoryToken"
+  },
+  "abi": [
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "token",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "string",
+          "name": "name",
+          "type": "string"
+        },
+        {
+          "indexed": false,
+          "internalType": "string",
+          "name": "symbol",
+          "type": "string"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "supply",
+          "type": "uint256"
+        }
+      ],
+      "name": "TokenCreated",
+      "type": "event"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "string",
+          "name": "name",
+          "type": "string"
+        },
+        {
+          "internalType": "string",
+          "name": "symbol",
+          "type": "string"
+        },
+        {
+          "internalType": "uint256",
+          "name": "supply",
+          "type": "uint256"
+        }
+      ],
+      "name": "deployToken",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    }
+  ]
+}
