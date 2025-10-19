@@ -175,6 +175,7 @@ export function Faucet() {
     }
   }, [supportedChainId, address, loadDeployedTokens]);
 
+
   // Load available tokens for transfer
   useEffect(() => {
     if (supportedChainId && address) {
@@ -298,7 +299,6 @@ export function Faucet() {
       });
 
       if (tokenTransferredEvent) {
-        console.log("🎉 TokenTransferred event captured:", tokenTransferredEvent);
         // TokenTransferred(address indexed caller, address indexed tokenAddress, address indexed to, uint256 amount, uint256 timestamp)
         if (tokenTransferredEvent.topics.length >= 4) {
           const caller = "0x" + (tokenTransferredEvent.topics[1] || "").slice(-40);
@@ -307,7 +307,6 @@ export function Faucet() {
           const amount = BigInt("0x" + tokenTransferredEvent.data.slice(2, 66));
           const timestamp = BigInt("0x" + tokenTransferredEvent.data.slice(66, 130));
           
-          console.log("Event details:", { caller, tokenAddress, to, amount: amount.toString(), timestamp: timestamp.toString() });
         }
       }
       
@@ -423,25 +422,13 @@ export function Faucet() {
         args: [tokenName, tokenSymbol, parseEther("0")], // Deploy with 0 supply initially
       });
 
-      // Encode recordDeploy function call (với tokenAddress tạm thời, sẽ được update sau)
-      const recordDeployData = encodeFunctionData({
-        abi: MonPadABI.abi,
-        functionName: "recordDeploy",
-        args: ["0x0000000000000000000000000000000000000000", tokenName, tokenSymbol, parseEther(tokenSupply)]
-      });
-
-      // Create user operation with both FactoryToken.deployToken() and MonPad.recordDeploy()
+      // Create user operation with only FactoryToken.deployToken() (không gộp MonPad)
       const userOp = await bundlerClient.prepareUserOperation({
         account: smartAccount,
         calls: [
           {
             to: factoryAddress as `0x${string}`,
             data: deployData,
-            value: BigInt(0),
-          },
-          {
-            to: monPadAddress as `0x${string}`,
-            data: recordDeployData,
             value: BigInt(0),
           }
         ],
@@ -485,27 +472,25 @@ export function Faucet() {
       // Extract deployed token address from TokenCreated event
       let deployedAddress: string | undefined;
       
-      // Look for TokenDeployed event from MonPad contract
-      const monPadAddressForDeploy = getMonPadAddress(supportedChainId);
-      const tokenDeployedEvent = txReceipt.logs.find((log: { address: string; topics: string[]; data: string }) => {
-        // Check if this is a TokenDeployed event from MonPad
-        return log.address.toLowerCase() === monPadAddressForDeploy.toLowerCase() &&
+      // Look for TokenCreated event from Factory contract
+      const tokenCreatedEvent = txReceipt.logs.find((log: { address: string; topics: string[]; data: string }) => {
+        // Check if this is a TokenCreated event from Factory
+        return log.address.toLowerCase() === factoryAddress.toLowerCase() &&
                log.topics.length > 0;
       });
 
-      if (tokenDeployedEvent) {
-        console.log("🎉 TokenDeployed event captured from MonPad:", tokenDeployedEvent);
-        // TokenDeployed(address indexed deployer, address indexed tokenAddress, string name, string symbol, uint256 supply, uint256 timestamp)
-        // Token address should be in topics[2] (second indexed parameter)
-        if (tokenDeployedEvent.topics.length >= 3) {
-          // Extract 20 bytes from the end of topics[2] (remove padding zeros)
-          const topicAddress = tokenDeployedEvent.topics[2];
+      if (tokenCreatedEvent) {
+        // TokenCreated(address indexed token, string name, string symbol, uint256 supply)
+        // Token address should be in topics[1] (first indexed parameter)
+        if (tokenCreatedEvent.topics.length >= 2) {
+          // Extract 20 bytes from the end of topics[1] (remove padding zeros)
+          const topicAddress = tokenCreatedEvent.topics[1];
           if (topicAddress) {
             deployedAddress = "0x" + topicAddress.slice(-40); // Last 40 chars = 20 bytes
           }
         } else {
           // Fallback: try to extract from data
-          deployedAddress = "0x" + tokenDeployedEvent.data.slice(26, 66);
+          deployedAddress = "0x" + tokenCreatedEvent.data.slice(26, 66);
         }
       } else {
         // Fallback: try to find any contract creation in logs
@@ -520,9 +505,73 @@ export function Faucet() {
       }
 
       if (!deployedAddress) {
-        throw new Error("❌ Contract deployment failed — no TokenDeployed event found in logs.");
+        throw new Error("❌ Contract deployment failed — no TokenCreated event found in logs.");
       }
 
+      // Record deployment in MonPad for Envio indexing (separate call)
+      const monPadAddressForDeploy = getMonPadAddress(supportedChainId);
+      const recordDeployData = encodeFunctionData({
+        abi: MonPadABI.abi,
+        functionName: "recordDeploy",
+        args: [deployedAddress as `0x${string}`, tokenName, tokenSymbol, parseEther(tokenSupply)]
+      });
+
+      try {
+        // Create second user operation to record deployment
+        const recordUserOp = await bundlerClient.prepareUserOperation({
+          account: smartAccount,
+          calls: [
+            {
+              to: monPadAddressForDeploy as `0x${string}`,
+              data: recordDeployData,
+              value: BigInt(0),
+            }
+          ],
+        });
+
+        // Override gas limits for record operation
+        const recordCallGasLimit = recordUserOp.callGasLimit 
+          ? recordUserOp.callGasLimit + (recordUserOp.callGasLimit * BigInt(30) / BigInt(100))
+          : BigInt(200000);
+        const recordVerificationGasLimit = recordUserOp.verificationGasLimit
+          ? recordUserOp.verificationGasLimit + (recordUserOp.verificationGasLimit * BigInt(30) / BigInt(100))
+          : BigInt(1000000);
+        const recordPreVerificationGas = recordUserOp.preVerificationGas
+          ? recordUserOp.preVerificationGas + (recordUserOp.preVerificationGas * BigInt(30) / BigInt(100))
+          : BigInt(800000);
+
+        recordUserOp.callGasLimit = recordCallGasLimit;
+        recordUserOp.verificationGasLimit = recordVerificationGasLimit;
+        recordUserOp.preVerificationGas = recordPreVerificationGas;
+
+        // Sign and send record operation
+        const recordSignature = await smartAccount.signUserOperation(recordUserOp);
+        recordUserOp.signature = recordSignature;
+
+        const recordUserOpHash = await bundlerClient.sendUserOperation(recordUserOp);
+        
+        // Wait for record operation (don't wait too long)
+        const recordUserOpReceipt = await bundlerClient.waitForUserOperationReceipt({
+          hash: recordUserOpHash,
+          timeout: 30_000,
+        });
+
+        // Parse MonPad record logs
+        if (recordUserOpReceipt.receipt.status === "success") {
+          const recordTxHash = recordUserOpReceipt.receipt.transactionHash;
+          const recordTxReceipt = await publicClient.getTransactionReceipt({ hash: recordTxHash as `0x${string}` });
+          
+          // Look for TokenDeployed event from MonPad contract
+          const tokenDeployedEvent = recordTxReceipt.logs.find((log: { address: string; topics: string[]; data: string }) => {
+            return log.address.toLowerCase() === monPadAddressForDeploy.toLowerCase() &&
+                   log.topics.length > 0;
+          });
+        }
+
+      } catch (recordError) {
+        console.warn("Failed to record deployment in MonPad:", recordError);
+        // Don't fail the whole operation if MonPad record fails
+      }
 
       // Show success toast for deployment
       const explorerUrl = getExplorerUrl(supportedChainId);
@@ -621,25 +670,13 @@ export function Faucet() {
         args: [saAddress, parseEther(mintAmount)]
       });
 
-      // Record mint event for Envio indexing
-      const recordMintData = encodeFunctionData({
-        abi: MonPadABI.abi,
-        functionName: "recordMint",
-        args: [mintTokenAddress as `0x${string}`, saAddress, parseEther(mintAmount)]
-      });
-
-      // Create user operation with both MyToken.mint() and MonPad.recordMint()
+      // Create user operation with only MyToken.mint() first
       const userOp = await bundlerClient.prepareUserOperation({
         account: smartAccount,
         calls: [
           {
             to: mintTokenAddress as `0x${string}`,
             data: mintData,
-            value: BigInt(0),
-          },
-          {
-            to: monPadAddress as `0x${string}`,
-            data: recordMintData,
             value: BigInt(0),
           }
         ],
@@ -707,29 +744,68 @@ export function Faucet() {
       if (userOpReceipt.receipt.status === "success") {
         const txHash = userOpReceipt.receipt.transactionHash;
         
-        // Parse logs to get MonPad events
-        if (!publicClient) throw new Error("Public client not available");
-        const txReceipt = await publicClient.getTransactionReceipt({ hash: txHash as `0x${string}` });
-        
-        // Look for TokenMinted event from MonPad contract
-        const monPadAddressForMint = getMonPadAddress(supportedChainId);
-        const tokenMintedEvent = txReceipt.logs.find((log: { address: string; topics: string[]; data: string }) => {
-          return log.address.toLowerCase() === monPadAddressForMint.toLowerCase() &&
-                 log.topics.length > 0;
+        // Record mint event for Envio indexing (separate call)
+        const recordMintData = encodeFunctionData({
+          abi: MonPadABI.abi,
+          functionName: "recordMint",
+          args: [mintTokenAddress as `0x${string}`, saAddress, parseEther(mintAmount)]
         });
 
-        if (tokenMintedEvent) {
-          console.log("🎉 TokenMinted event captured:", tokenMintedEvent);
-          // TokenMinted(address indexed caller, address indexed tokenAddress, address indexed to, uint256 amount, uint256 timestamp)
-          if (tokenMintedEvent.topics.length >= 4) {
-            const caller = "0x" + (tokenMintedEvent.topics[1] || "").slice(-40);
-            const tokenAddress = "0x" + (tokenMintedEvent.topics[2] || "").slice(-40);
-            const to = "0x" + (tokenMintedEvent.topics[3] || "").slice(-40);
-            const amount = BigInt("0x" + tokenMintedEvent.data.slice(2, 66));
-            const timestamp = BigInt("0x" + tokenMintedEvent.data.slice(66, 130));
+        try {
+          // Create second user operation to record mint
+          const recordUserOp = await bundlerClient.prepareUserOperation({
+            account: smartAccount,
+            calls: [
+              {
+                to: monPadAddress as `0x${string}`,
+                data: recordMintData,
+                value: BigInt(0),
+              }
+            ],
+          });
+
+          // Override gas limits for record operation
+          const recordCallGasLimit = recordUserOp.callGasLimit 
+            ? recordUserOp.callGasLimit + (recordUserOp.callGasLimit * BigInt(30) / BigInt(100))
+            : BigInt(200000);
+          const recordVerificationGasLimit = recordUserOp.verificationGasLimit
+            ? recordUserOp.verificationGasLimit + (recordUserOp.verificationGasLimit * BigInt(30) / BigInt(100))
+            : BigInt(1000000);
+          const recordPreVerificationGas = recordUserOp.preVerificationGas
+            ? recordUserOp.preVerificationGas + (recordUserOp.preVerificationGas * BigInt(30) / BigInt(100))
+            : BigInt(800000);
+
+          recordUserOp.callGasLimit = recordCallGasLimit;
+          recordUserOp.verificationGasLimit = recordVerificationGasLimit;
+          recordUserOp.preVerificationGas = recordPreVerificationGas;
+
+          // Sign and send record operation
+          const recordSignature = await smartAccount.signUserOperation(recordUserOp);
+          recordUserOp.signature = recordSignature;
+
+          const recordUserOpHash = await bundlerClient.sendUserOperation(recordUserOp);
+          
+          // Wait for record operation (don't wait too long)
+          const recordUserOpReceipt = await bundlerClient.waitForUserOperationReceipt({
+            hash: recordUserOpHash,
+            timeout: 30_000,
+          });
+
+          // Parse MonPad record logs
+          if (recordUserOpReceipt.receipt.status === "success") {
+            const recordTxHash = recordUserOpReceipt.receipt.transactionHash;
+            const recordTxReceipt = await publicClient.getTransactionReceipt({ hash: recordTxHash as `0x${string}` });
             
-            console.log("Event details:", { caller, tokenAddress, to, amount: amount.toString(), timestamp: timestamp.toString() });
+            // Look for TokenMinted event from MonPad contract
+            const tokenMintedEvent = recordTxReceipt.logs.find((log: { address: string; topics: string[]; data: string }) => {
+              return log.address.toLowerCase() === monPadAddress.toLowerCase() &&
+                     log.topics.length > 0;
+            });
           }
+
+        } catch (recordError) {
+          console.warn("Failed to record mint in MonPad:", recordError);
+          // Don't fail the whole operation if MonPad record fails
         }
         
         // Show success toast for minting

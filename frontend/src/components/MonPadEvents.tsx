@@ -61,10 +61,10 @@ export default function MonPadEvents() {
     setCurrentPage(page);
   };
 
-  // Try simpler query first
+  // Try simpler query first - order by timestamp desc to get newest events
   const simpleQuery = `
   query {
-    MonPad_TokenDeployed(limit: 5) {
+    MonPad_TokenDeployed(limit: 5, order_by: { timestamp: desc }) {
       deployer
       tokenAddress
       name
@@ -72,21 +72,21 @@ export default function MonPadEvents() {
       supply
       timestamp
     }
-    MonPad_TokenMinted(limit: 5) {
+    MonPad_TokenMinted(limit: 5, order_by: { timestamp: desc }) {
       caller
       tokenAddress
       to
       amount
       timestamp
     }
-    MonPad_TokenTransferred(limit: 5) {
+    MonPad_TokenTransferred(limit: 5, order_by: { timestamp: desc }) {
       caller
       tokenAddress
       to
       amount
       timestamp
     }
-    MonPad_AccountDeployed(limit: 5) {
+    MonPad_AccountDeployed(limit: 5, order_by: { timestamp: desc }) {
       user
       smartAccount
       timestamp
@@ -167,7 +167,7 @@ export default function MonPadEvents() {
   if (loading) return <p className="text-gray-400">Loading Envio data...</p>;
 
   return (
-    <div className="p-4 bg-gray-800 rounded-xl text-white">
+    <div className="p-6 rounded-xl bg-secondary-background border border-gray-700">
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-xl font-bold">MonPad Activity Tracker</h2>
         <div className="flex items-center gap-2">
