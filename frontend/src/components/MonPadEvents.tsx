@@ -1,8 +1,24 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
+
+interface EventData {
+  id: string;
+  type: string;
+  deployer?: string;
+  tokenAddress?: string;
+  name?: string;
+  symbol?: string;
+  supply?: string;
+  caller?: string;
+  to?: string;
+  amount?: string;
+  user?: string;
+  smartAccount?: string;
+  timestamp: string;
+}
 
 export default function MonPadEvents() {
-  const [events, setEvents] = useState<any[]>([]);
+  const [events, setEvents] = useState<EventData[]>([]);
   const [loading, setLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
   const [currentPage, setCurrentPage] = useState(1);
@@ -29,10 +45,6 @@ export default function MonPadEvents() {
     // Check if it's Monad testnet (chainId 10143) or Sepolia (11155111)
     // For now, default to Monad explorer
     return `https://testnet.monadexplorer.com/address/${address}`;
-  };
-
-  const getTransactionUrl = (txHash: string) => {
-    return `https://testnet.monadexplorer.com/tx/${txHash}`;
   };
 
   const formatAddress = (address: string) => {
@@ -81,46 +93,13 @@ export default function MonPadEvents() {
     }
   }`;
 
-  const query = `
-  query {
-    MonPad_TokenDeployed(limit: 5, order_by: { timestamp: desc }) {
-      deployer
-      tokenAddress
-      name
-      symbol
-      supply
-      timestamp
-    }
-    MonPad_TokenMinted(limit: 5, order_by: { timestamp: desc }) {
-      caller
-      tokenAddress
-      to
-      amount
-      timestamp
-    }
-    MonPad_TokenTransferred(limit: 5, order_by: { timestamp: desc }) {
-      caller
-      tokenAddress
-      to
-      amount
-      timestamp
-    }
-    MonPad_AccountDeployed(limit: 5, order_by: { timestamp: desc }) {
-      user
-      smartAccount
-      timestamp
-    }
-  }`;
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
-      // Try simple query first
-      let currentQuery = simpleQuery;
-      
       const res = await fetch(ENVIO_GRAPHQL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: currentQuery }),
+        body: JSON.stringify({ query: simpleQuery }),
       });
       const response = await res.json();
       
@@ -142,16 +121,16 @@ export default function MonPadEvents() {
       
       console.log("Data structure:", Object.keys(data));
 
-      const merged: any[] = [];
+      const merged: EventData[] = [];
 
-      const pushEvents = (list: any[], type: string) => {
+      const pushEvents = (list: EventData[], type: string) => {
         if (list && Array.isArray(list)) {
           list.forEach((e, index) => {
             console.log(`${type} event ${index}:`, e);
             merged.push({
+              ...e,
               id: `${type}-${index}`,
               type,
-              ...e,
             });
           });
         }
@@ -174,7 +153,7 @@ export default function MonPadEvents() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [simpleQuery]);
 
   useEffect(() => {
     fetchData();
@@ -183,7 +162,7 @@ export default function MonPadEvents() {
     const interval = setInterval(fetchData, 30000);
     
     return () => clearInterval(interval);
-  }, []);
+  }, [fetchData]);
 
   if (loading) return <p className="text-gray-400">Loading Envio data...</p>;
 
@@ -218,81 +197,95 @@ export default function MonPadEvents() {
               {e.type === "TokenDeployed" && (
                 <p className="text-sm text-gray-300">
                   🧩 {e.name} ({e.symbol}) deployed by{" "}
-                  <a
-                    href={getExplorerUrl(e.deployer)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-400 hover:text-blue-300 underline"
-                  >
-                    {formatAddress(e.deployer)}
-                  </a>
-                  , supply {formatTokenAmount(e.supply)}
+                  {e.deployer && (
+                    <a
+                      href={getExplorerUrl(e.deployer)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-400 hover:text-blue-300 underline"
+                    >
+                      {formatAddress(e.deployer)}
+                    </a>
+                  )}
+                  , supply {formatTokenAmount(e.supply || "0")}
                 </p>
               )}
               {e.type === "TokenMinted" && (
                 <p className="text-sm text-gray-300">
-                  💥 Mint {formatTokenAmount(e.amount)} to{" "}
-                  <a
-                    href={getExplorerUrl(e.to)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-400 hover:text-blue-300 underline"
-                  >
-                    {formatAddress(e.to)}
-                  </a>{" "}
+                  💥 Mint {formatTokenAmount(e.amount || "0")} to{" "}
+                  {e.to && (
+                    <a
+                      href={getExplorerUrl(e.to)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-400 hover:text-blue-300 underline"
+                    >
+                      {formatAddress(e.to)}
+                    </a>
+                  )}{" "}
                   by{" "}
-                  <a
-                    href={getExplorerUrl(e.caller)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-400 hover:text-blue-300 underline"
-                  >
-                    {formatAddress(e.caller)}
-                  </a>
+                  {e.caller && (
+                    <a
+                      href={getExplorerUrl(e.caller)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-400 hover:text-blue-300 underline"
+                    >
+                      {formatAddress(e.caller)}
+                    </a>
+                  )}
                 </p>
               )}
               {e.type === "TokenTransferred" && (
                 <p className="text-sm text-gray-300">
-                  🔁 Transfer {formatTokenAmount(e.amount)} token to{" "}
-                  <a
-                    href={getExplorerUrl(e.to)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-400 hover:text-blue-300 underline"
-                  >
-                    {formatAddress(e.to)}
-                  </a>{" "}
+                  🔁 Transfer {formatTokenAmount(e.amount || "0")} token to{" "}
+                  {e.to && (
+                    <a
+                      href={getExplorerUrl(e.to)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-400 hover:text-blue-300 underline"
+                    >
+                      {formatAddress(e.to)}
+                    </a>
+                  )}{" "}
                   by{" "}
-                  <a
-                    href={getExplorerUrl(e.caller)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-400 hover:text-blue-300 underline"
-                  >
-                    {formatAddress(e.caller)}
-                  </a>
+                  {e.caller && (
+                    <a
+                      href={getExplorerUrl(e.caller)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-400 hover:text-blue-300 underline"
+                    >
+                      {formatAddress(e.caller)}
+                    </a>
+                  )}
                 </p>
               )}
               {e.type === "AccountDeployed" && (
                 <p className="text-sm text-gray-300">
                   ⚙️ Account{" "}
-                  <a
-                    href={getExplorerUrl(e.smartAccount)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-400 hover:text-blue-300 underline"
-                  >
-                    {formatAddress(e.smartAccount)}
-                  </a>{" "}
+                  {e.smartAccount && (
+                    <a
+                      href={getExplorerUrl(e.smartAccount)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-400 hover:text-blue-300 underline"
+                    >
+                      {formatAddress(e.smartAccount)}
+                    </a>
+                  )}{" "}
                   created by{" "}
-                  <a
-                    href={getExplorerUrl(e.user)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-400 hover:text-blue-300 underline"
-                  >
-                    {formatAddress(e.user)}
-                  </a>
+                  {e.user && (
+                    <a
+                      href={getExplorerUrl(e.user)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-400 hover:text-blue-300 underline"
+                    >
+                      {formatAddress(e.user)}
+                    </a>
+                  )}
                 </p>
               )}
               <p className="text-xs text-gray-500">
