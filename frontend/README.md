@@ -107,6 +107,85 @@ npm run genabi
 
 ---
 
+## 🔍 Envio Integration
+
+MonPad integrates with **Envio HyperIndex** for comprehensive blockchain data indexing and analytics:
+
+### 📊 Indexed Events
+- **TokenDeployed** - Track all token deployments with metadata
+- **TokenMinted** - Monitor token minting activities  
+- **TokenTransferred** - Record all token transfers between accounts
+
+### 🔗 MonPad Contract Functions
+```solidity
+// Core indexing functions
+recordDeploy(address token, string name, string symbol, uint256 supply)
+recordMint(address token, address to, uint256 amount)  
+recordTransfer(address token, address to, uint256 amount)
+```
+
+### 📈 Query Capabilities
+- **Token Analytics** - Deployment trends, mint volumes, transfer patterns
+- **User Activity** - Smart Account usage, token interactions
+- **Multi-Chain Data** - Cross-chain token operations (Sepolia + Monad)
+- **Real-time Events** - Live monitoring of token lifecycle events
+
+### 🔍 GraphQL Examples
+```graphql
+# Get latest token deployments
+query {
+  MonPad_TokenDeployed(limit: 5, order_by: { timestamp: desc }) {
+    deployer
+    tokenAddress
+    name
+    symbol
+    supply
+    timestamp
+  }
+}
+
+# Get recent token mints
+query {
+  MonPad_TokenMinted(limit: 5, order_by: { timestamp: desc }) {
+    caller
+    tokenAddress
+    to
+    amount
+    timestamp
+  }
+}
+
+# Get token transfers
+query {
+  MonPad_TokenTransferred(limit: 5, order_by: { timestamp: desc }) {
+    caller
+    tokenAddress
+    to
+    amount
+    timestamp
+  }
+}
+
+# Get smart account deployments
+query {
+  MonPad_AccountDeployed(limit: 5, order_by: { timestamp: desc }) {
+    user
+    smartAccount
+    timestamp
+  }
+}
+```
+
+**Endpoint**: `https://indexer.dev.hyperindex.xyz/e43f549/v1/graphql`
+
+### 🎯 Envio Benefits
+- **Decentralized Indexing** - Reliable blockchain data without centralized APIs
+- **Multi-Chain Support** - Unified data across Ethereum and Monad networks  
+- **Event Tracking** - Complete audit trail of all token operations
+- **Analytics Ready** - Structured data for dashboards and insights
+
+---
+
 ## 📝 License
 
 MIT License - See LICENSE file for details
