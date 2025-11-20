@@ -185,6 +185,7 @@ query {
 - **Analytics Ready** - Structured data for dashboards and insights
 
 ---
+Thank you!
 
 ## 📝 License
 
